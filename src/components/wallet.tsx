@@ -7,7 +7,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "./ui/accordion";
-import { Copy, CopyIcon, Trash } from "lucide-react";
+import { Copy, CopyIcon, Eye, Trash } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -21,16 +21,34 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { derivePath } from "ed25519-hd-key";
-import { Keypair } from "@solana/web3.js";
-import { HDNodeWallet } from "ethers";
+import { Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import { HDNodeWallet, ethers } from "ethers";
 import nacl from "tweetnacl";
+import { Input } from "./ui/input";
+import {
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerFooter,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
+import { Progress } from "@/components/ui/progress";
+import axios from "axios";
 
 export default function Wallet({ sendData }: any) {
   const [phrases, setPhrases] = useState<any>();
+  const [existingphrases, setExistingPhrases] = useState<any>();
   const [seed, setSeed] = useState<any>();
   const path = localStorage.getItem("Path");
   const [keys, setKeys] = useState<any>([]);
   const [newKeyIndex, setNewKeyIndex] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [balance, setBalance] = useState();
+  const [progress, setProgress] = useState(10);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     const sp: any = localStorage.getItem("Phrases");
@@ -42,10 +60,13 @@ export default function Wallet({ sendData }: any) {
   }, []);
 
   function GeneratePhrase() {
-    const mnemonic = generateMnemonic();
-    console.log(mnemonic);
+    let mnemonic;
+    if (existingphrases) {
+      mnemonic = existingphrases;
+    } else {
+      mnemonic = generateMnemonic();
+    }
     const seed = mnemonicToSeedSync(mnemonic);
-    console.log(seed);
     setPhrases(mnemonic.split(" "));
     setSeed(seed);
     localStorage.setItem("Phrases", mnemonic);
@@ -89,6 +110,7 @@ export default function Wallet({ sendData }: any) {
     const path = `m/44'/60'/${i}'/0'`;
     const hdNode = HDNodeWallet.fromSeed(seed);
     const child = hdNode.derivePath(path);
+
     console.log("this is private key ", child.privateKey);
     console.log("this is public key ", child.address);
 
@@ -115,6 +137,54 @@ export default function Wallet({ sendData }: any) {
     const setNew = allKeys.filter((_: any, index: any) => index !== i);
     localStorage.setItem("keys", JSON.stringify(setNew));
     toast(`Wallet ${i + 1} Deleted Successfully`);
+  }
+  async function getBalances(key: any) {
+    console.log(key);
+    setLoading(true);
+    setProgress(40);
+
+    const url =
+      path === "501"
+        ? import.meta.env.VITE_SOL_MAIN
+        : import.meta.env.VITE_ETH_MAIN;
+
+    const body =
+      path === "501"
+        ? {
+            jsonrpc: "2.0",
+            method: "getBalance",
+            params: [key],
+            id: 1,
+          }
+        : {
+            jsonrpc: "2.0",
+            method: "alchemy_getTokenBalances",
+            params: [key],
+            id: 1,
+          };
+
+    try {
+      const result = await axios.post(url, body);
+      setProgress(80);
+      toast("Balance Fetched Successfully");
+      if (path === "501") {
+        const solBalance: any = result.data.result.value / LAMPORTS_PER_SOL;
+        setBalance(solBalance);
+      } else {
+        const balanceHex = result.data.result.tokenBalances[0].tokenBalance;
+        const formatted: any = ethers.formatUnits(balanceHex, 6);
+        setBalance(formatted);
+      }
+      setProgress(100);
+    } catch (error) {
+      toast("Error Occured While Fetching Data from RPC server");
+      setIsOpen(false);
+    } finally {
+      setTimeout(() => {
+        setProgress(0);
+        setLoading(false);
+      }, 1000);
+    }
   }
 
   return (
@@ -157,9 +227,15 @@ export default function Wallet({ sendData }: any) {
             <h2 className="text-2xl md:text-4xl font-semibold">
               Generate Recovery Phrases
             </h2>
-            <Button onClick={GeneratePhrase} className="mt-2 " size={"lg"}>
-              Generate Phrases
-            </Button>
+            <div className="flex  mt-2 space-x-4">
+              <Input
+                placeholder="Leave Blank if You Don't have Seed Phrases"
+                onChange={(e: any) => {
+                  setExistingPhrases(e.target.value);
+                }}
+              ></Input>
+              <Button onClick={GeneratePhrase}>Generate Phrases</Button>
+            </div>
           </div>
         )}
 
@@ -218,31 +294,105 @@ export default function Wallet({ sendData }: any) {
                 <h3 className="text-xl md:text-2xl font-semibold">{`Wallet ${
                   i + 1
                 }`}</h3>
-                <Button size={"sm"} variant={"ghost"}>
-                  <AlertDialog>
-                    <AlertDialogTrigger>
+                <div>
+                  <Drawer open={isOpen} onOpenChange={setIsOpen}>
+                    <DrawerTrigger>
                       {" "}
-                      <Trash className="text-red-800"></Trash>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>
-                          Are you Sure Wants To Delete the Wallet
-                        </AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This action cannot be undone. This will permanently
-                          The selected Wallet
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>No</AlertDialogCancel>
-                        <AlertDialogAction onClick={() => deletekeys(i)}>
-                          Yes
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </Button>
+                      <Button
+                        size={"sm"}
+                        variant={"ghost"}
+                        className="text-neutral-500"
+                        onClick={() => {
+                          setIsOpen(true);
+                          getBalances(key.publicKey);
+                        }}
+                      >
+                        <Eye></Eye>
+                      </Button>
+                    </DrawerTrigger>
+
+                    <DrawerContent>
+                      {loading ? (
+                        <div className="p-28 h-56">
+                          <div className="flex justify-center ">
+                            <div>
+                              <Progress value={progress} className="w-52" />
+                              <h6 className="mt-2 text-center text-xs md:text-base">
+                                Fetching Balances
+                              </h6>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <DrawerHeader className="pb-0">
+                            <DrawerTitle className="text-xl">
+                              Wallet Balances
+                            </DrawerTitle>
+                            <DrawerDescription>
+                              <div className="flex justify-center space-x-5 mt-2">
+                                <img
+                                  src={
+                                    path == "501"
+                                      ? "/solana.svg"
+                                      : "/ethereum.svg"
+                                  }
+                                  alt="Image"
+                                  className="w-16 h-16 dark:bg-white bg-neutral-100 rounded"
+                                />
+                              </div>
+                              <h2 className="mt-3 text-3xl font-semibold text-black dark:text-white">
+                                {`${balance} ${path == "501" ? "SOL" : "ETH"}`}
+                              </h2>
+                            </DrawerDescription>
+                          </DrawerHeader>
+                          <DrawerFooter>
+                            <Button
+                              size={"default"}
+                              className="text-center"
+                              onClick={() =>
+                                toast("soon This Feature will be added")
+                              }
+                            >
+                              Transfer
+                            </Button>
+                            <DrawerClose>
+                              <Button variant="outline" className="w-full">
+                                Close
+                              </Button>
+                            </DrawerClose>
+                          </DrawerFooter>
+                        </>
+                      )}
+                    </DrawerContent>
+                  </Drawer>
+
+                  <Button size={"sm"} variant={"ghost"}>
+                    <AlertDialog>
+                      <AlertDialogTrigger>
+                        {" "}
+                        <Trash className="text-red-800"></Trash>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Are you Sure Wants To Delete the Wallet
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This action cannot be undone. This will permanently
+                            The selected Wallet
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>No</AlertDialogCancel>
+                          <AlertDialogAction onClick={() => deletekeys(i)}>
+                            Yes
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </Button>
+                </div>
               </div>
               <div className="dark:bg-neutral-900 bg-neutral-100 rounded-t-xl rounded-b-2xl pt-6 pb-6">
                 <div className="pl-4 pr-4 ">
