@@ -166,7 +166,7 @@ export default function Wallet({ sendData }: any) {
     try {
       const result = await axios.post(url, body);
       setProgress(80);
-      toast("Balance Fetched Successfully");
+      toast.success("Balance Fetched Successfully");
       if (path === "501") {
         const solBalance: any = result.data.result.value / LAMPORTS_PER_SOL;
         setBalance(solBalance);
@@ -177,7 +177,7 @@ export default function Wallet({ sendData }: any) {
       }
       setProgress(100);
     } catch (error) {
-      toast("Error Occured While Fetching Data from RPC server");
+      toast.error("Error Occured While Fetching Data from RPC server");
       setIsOpen(false);
     } finally {
       setTimeout(() => {
